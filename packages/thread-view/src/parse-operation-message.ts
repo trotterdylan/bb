@@ -3,6 +3,7 @@ import type {
   PendingInteractionPermissionGrantApprovalSubject,
   ThreadEvent,
   SystemThreadProvisioningStatus,
+  SystemThreadInterruptedMachine,
   SystemThreadInterruptedReason,
   PluginInteractionLifecycle,
   ThreadEventItemPresentation,
@@ -118,7 +119,11 @@ function createThreadOperationMetadata(
 function threadInterruptedTitle(
   reason: SystemThreadInterruptedReason,
   cause?: "host-connection-lost",
+  machine?: SystemThreadInterruptedMachine,
 ): string {
+  if (machine !== undefined) {
+    return `Stopped — machine exited (${machine.reason})`;
+  }
   if (cause === "host-connection-lost") {
     return "Stopped — connection to host was lost";
   }
@@ -617,7 +622,11 @@ export function parseOperationMessage(
   if (decoded.type === "system/thread/interrupted") {
     return op(decoded, meta, "thread-interrupted", {
       opType: "thread-interrupted",
-      title: threadInterruptedTitle(decoded.reason, decoded.cause),
+      title: threadInterruptedTitle(
+        decoded.reason,
+        decoded.cause,
+        decoded.machine,
+      ),
       status: "interrupted",
     });
   }

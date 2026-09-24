@@ -2621,6 +2621,7 @@ export interface NormalizedPluginMachineProvider {
   create: PluginMachineProviderDeclaration["create"];
   suspend: NonNullable<PluginMachineProviderDeclaration["suspend"]> | null;
   resume: NonNullable<PluginMachineProviderDeclaration["resume"]> | null;
+  inspect: NonNullable<PluginMachineProviderDeclaration["inspect"]> | null;
   remove: PluginMachineProviderDeclaration["remove"];
 }
 
@@ -2673,6 +2674,12 @@ export function validatePluginMachineProviderDeclaration(
     declaration.availability,
     "availability",
   );
+  assertOptionalFunction(
+    "machine provider",
+    id,
+    declaration.inspect,
+    "an inspect",
+  );
 
   return {
     id,
@@ -2688,6 +2695,7 @@ export function validatePluginMachineProviderDeclaration(
     create: declaration.create,
     suspend: declaration.suspend ?? null,
     resume: declaration.resume ?? null,
+    inspect: declaration.inspect ?? null,
     remove: declaration.remove,
   };
 }

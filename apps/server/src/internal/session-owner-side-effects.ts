@@ -6,6 +6,7 @@ import {
   listHostThreadIds,
   type HostDaemonSessionRow,
 } from "@bb/db";
+import type { SystemThreadInterruptedMachine } from "@bb/domain";
 import type { HostDaemonActiveThread } from "@bb/host-daemon-contract";
 import {
   DAEMON_ACTIVE_WORK_DISCONNECT_GRACE_MS,
@@ -22,6 +23,8 @@ import {
 import { buildThreadStatusChangeMetadataByThreadId } from "../services/threads/thread-runtime-display.js";
 import { settleDanglingBackgroundTasks } from "../services/threads/background-task-reconciliation.js";
 import { interruptEnvironmentProvisioningForHost } from "../services/environments/environment-engine.js";
+import { inspectDisconnectedMachine } from "../services/machines/machine-inspection.js";
+import { errorMessage } from "../services/lib/error-log-fields.js";
 
 const DAEMON_RESTARTED_PENDING_INTERACTION_REASON =
   "Host daemon restarted while awaiting user interaction; retry the thread to continue";
@@ -167,10 +170,16 @@ export function handleDaemonSocketClosed(
   deps.hub.scheduleDaemonActiveWorkDisconnect(
     args.sessionId,
     DAEMON_ACTIVE_WORK_DISCONNECT_GRACE_MS,
-    () =>
-      completeDaemonActiveWorkDisconnectGrace(deps, {
+    () => {
+      void completeDaemonActiveWorkDisconnectGrace(deps, {
         hostId: session.hostId,
-      }),
+      }).catch((error: unknown) => {
+        deps.logger.warn(
+          { hostId: session.hostId, error: errorMessage(error) },
+          "Interrupting active work after daemon disconnect failed",
+        );
+      });
+    },
   );
 }
 
@@ -231,7 +240,7 @@ export function disconnectImportedDaemonSessions(
   }
   for (const hostId of hostIds) {
     completeDaemonDisconnectGrace(deps, { hostId });
-    completeDaemonActiveWorkDisconnectGrace(deps, { hostId });
+    interruptHostActiveWorkAfterDisconnect(deps, { hostId, machine: null });
   }
   deps.logger.info(
     { hosts: hostIds.size, sessions: args.sessions.length },
@@ -255,21 +264,38 @@ function completeDaemonDisconnectGrace(
   notifyHostThreadRuntimeStatusChanged(deps, args.hostId);
 }
 
-function completeDaemonActiveWorkDisconnectGrace(
+async function completeDaemonActiveWorkDisconnectGrace(
   deps: Pick<
     AppDeps,
     "db" | "hub" | "logger" | "pendingInteractions" | "providerRegistry"
   >,
   args: CompleteDaemonActiveWorkDisconnectGraceArgs,
-): void {
+): Promise<void> {
   if (deps.hub.hasDaemonForHost(args.hostId)) {
     return;
   }
+  const machine = await inspectDisconnectedMachine(deps, args.hostId);
+  if (deps.hub.hasDaemonForHost(args.hostId)) {
+    return;
+  }
+  interruptHostActiveWorkAfterDisconnect(deps, {
+    hostId: args.hostId,
+    machine,
+  });
+}
 
+function interruptHostActiveWorkAfterDisconnect(
+  deps: Pick<
+    AppDeps,
+    "db" | "hub" | "logger" | "pendingInteractions" | "providerRegistry"
+  >,
+  args: { hostId: string; machine: SystemThreadInterruptedMachine | null },
+): void {
   interruptActiveThreadsForHost(deps, {
     hostId: args.hostId,
     reason: "host-daemon-restarted",
     cause: "host-connection-lost",
+    ...(args.machine === null ? {} : { machine: args.machine }),
   });
   interruptEnvironmentProvisioningForHost(deps, {
     hostId: args.hostId,

@@ -4,6 +4,7 @@ import type {
   ClientTurnRequestId,
   PermissionMode,
   PromptInput,
+  SystemThreadInterruptedMachine,
   Thread,
 } from "@bb/domain";
 import type {
@@ -16,6 +17,7 @@ import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
 import { attemptDispatch } from "./dispatch-attempt.js";
 import {
   loadFailedTurn,
+  loadInterruptedMachine,
   retryChain,
   wasFailedTurnInputAccepted,
   type FailedTurnRecord,
@@ -90,6 +92,26 @@ export interface RetryFailedTurnArgs {
 
 const CONTINUE_ACCEPTED_TURN_TEXT = "Please continue.";
 
+function machineExitNote(
+  machine: SystemThreadInterruptedMachine,
+  accepted: boolean,
+): PromptInput {
+  const when =
+    machine.exitedAt === undefined
+      ? ""
+      : ` at ${new Date(machine.exitedAt).toISOString()}`;
+  const detail = machine.detail === undefined ? "" : ` (${machine.detail})`;
+  const during = accepted
+    ? "while the previous attempt of this turn was running"
+    : "before the previous attempt of this turn could start";
+  return {
+    type: "text",
+    text: `The machine this thread runs on stopped ${during}${when}: its compute exited with reason ${machine.reason}${detail}. It is running again now, but anything that was in progress was lost. If a command you ran caused the exit, for example a build or test run that exceeded the machine's memory limit, change how you run it before trying again.`,
+    mentions: [],
+    visibility: "agent-only",
+  };
+}
+
 /**
  * What the re-attempt sends, decided by the provider's own acceptance record.
  *
@@ -109,9 +131,13 @@ function retryInput(
   deps: Pick<TurnRetryDeps, "db">,
   args: { threadId: string; failed: FailedTurnRecord },
 ): { input: PromptInput[]; inputGroups?: PromptInput[][] } {
-  if (wasFailedTurnInputAccepted(deps.db, args)) {
+  const accepted = wasFailedTurnInputAccepted(deps.db, args);
+  const machine = loadInterruptedMachine(deps.db, args);
+  const notes = machine === null ? [] : [machineExitNote(machine, accepted)];
+  if (accepted) {
     return {
       input: [
+        ...notes,
         {
           type: "text",
           text: CONTINUE_ACCEPTED_TURN_TEXT,
@@ -127,10 +153,15 @@ function retryInput(
   });
   const groups = args.failed.request.inputGroups;
   return {
-    input: args.failed.request.input.map(agentOnly),
+    input: [...notes, ...args.failed.request.input.map(agentOnly)],
     ...(groups === undefined
       ? {}
-      : { inputGroups: groups.map((group) => group.map(agentOnly)) }),
+      : {
+          inputGroups: [
+            ...(notes.length === 0 ? [] : [notes]),
+            ...groups.map((group) => group.map(agentOnly)),
+          ],
+        }),
   };
 }
 

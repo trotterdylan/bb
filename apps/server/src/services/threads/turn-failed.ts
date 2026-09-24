@@ -11,9 +11,11 @@ import {
 import {
   providerErrorInfoSchema,
   providerRateLimitStateSchema,
+  systemThreadInterruptedEventDataSchema,
   type ClientTurnRequestId,
   type ProviderErrorInfo,
   type ProviderRateLimitState,
+  type SystemThreadInterruptedMachine,
   type Thread,
   type TurnRequestEventData,
 } from "@bb/domain";
@@ -72,6 +74,22 @@ export function loadFailedTurn(
   } catch {
     return null;
   }
+}
+
+export function loadInterruptedMachine(
+  db: DbConnection,
+  args: { threadId: string; failed: FailedTurnRecord },
+): SystemThreadInterruptedMachine | null {
+  const row = getLatestStoredThreadEventOfTypes(db, {
+    threadId: args.threadId,
+    types: ["system/thread/interrupted"],
+    afterSequence: args.failed.requestSequence,
+  });
+  if (row === null) return null;
+  const parsed = systemThreadInterruptedEventDataSchema.safeParse(
+    parseRowData(row),
+  );
+  return parsed.success ? (parsed.data.machine ?? null) : null;
 }
 
 /**

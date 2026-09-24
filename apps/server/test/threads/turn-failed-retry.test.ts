@@ -257,6 +257,30 @@ function seedDoorRejection(
   });
 }
 
+function seedMachineExitInterruption(
+  harness: TestAppHarness,
+  args: { environmentId: string; threadId: string },
+) {
+  seedEvent(harness.deps, {
+    threadId: args.threadId,
+    environmentId: args.environmentId,
+    sequence:
+      getLatestThreadSequence(harness.db, { threadId: args.threadId }) + 1,
+    type: "system/thread/interrupted",
+    scope: { kind: "thread" },
+    data: {
+      reason: "host-daemon-restarted",
+      cause: "host-connection-lost",
+      machine: {
+        status: "exited",
+        reason: "OOMKilled",
+        detail: "exit code 137",
+        exitedAt: Date.UTC(2026, 8, 24, 11, 54, 50),
+      },
+    },
+  });
+}
+
 function failThread(harness: TestAppHarness, threadId: string): void {
   applyLoggedThreadLifecycleEvent(harness.deps, {
     event: { type: "run.failed" },
@@ -482,6 +506,67 @@ describe("retrying a failed turn", () => {
       expect(userRequests).toHaveLength(1);
       // The row was consumed by the dispatch rather than left on the queue.
       expect(listQueuedThreadMessages(harness.db, thread.id)).toEqual([]);
+    });
+  });
+
+  it("tells the agent what the machine reported before continuing an accepted turn", async () => {
+    await withTestHarness(async (harness) => {
+      const { environment, requestId, thread } = seedFailableThread(
+        harness,
+        "host-machine-exit-continue",
+      );
+      seedInputAccepted(harness, {
+        environmentId: environment.id,
+        threadId: thread.id,
+        requestId,
+      });
+      seedMachineExitInterruption(harness, {
+        environmentId: environment.id,
+        threadId: thread.id,
+      });
+      failThread(harness, thread.id);
+
+      const result = await retryFailedTurn(harness.deps, {
+        thread: requireThread(harness, thread.id),
+        request: { turnRequestId: requestId, sendAt: null, reason: null },
+      });
+      expect(result.delivery).toBe("sent");
+
+      const data = lastTurnRequest(harness, thread.id);
+      expect(data.input.map((block) => block.visibility)).toEqual([
+        "agent-only",
+        "agent-only",
+      ]);
+      expect(data.input[0]?.text).toBe(
+        "The machine this thread runs on stopped while the previous attempt of this turn was running at 2026-09-24T11:54:50.000Z: its compute exited with reason OOMKilled (exit code 137). It is running again now, but anything that was in progress was lost. If a command you ran caused the exit, for example a build or test run that exceeded the machine's memory limit, change how you run it before trying again.",
+      );
+      expect(data.input[1]?.text).toBe("Please continue.");
+    });
+  });
+
+  it("puts the machine's report ahead of a re-sent input", async () => {
+    await withTestHarness(async (harness) => {
+      const { environment, requestId, thread } = seedFailableThread(
+        harness,
+        "host-machine-exit-resend",
+      );
+      seedMachineExitInterruption(harness, {
+        environmentId: environment.id,
+        threadId: thread.id,
+      });
+      failThread(harness, thread.id);
+
+      await retryFailedTurn(harness.deps, {
+        thread: requireThread(harness, thread.id),
+        request: { turnRequestId: requestId, sendAt: null, reason: null },
+      });
+
+      const data = lastTurnRequest(harness, thread.id);
+      expect(data.input).toHaveLength(2);
+      expect(data.input[0]?.text).toContain(
+        "before the previous attempt of this turn could start",
+      );
+      expect(data.input[1]?.text).toBe("Do the thing");
     });
   });
 

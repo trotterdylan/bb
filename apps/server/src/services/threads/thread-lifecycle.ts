@@ -34,6 +34,7 @@ import { assertNever } from "@bb/core-ui";
 import { COMPETING_TURN_ERROR_CODE } from "@bb/host-daemon-contract";
 import {
   type ProvisioningTranscriptEntry,
+  type SystemThreadInterruptedMachine,
   type SystemThreadInterruptedReason,
   type Thread,
   type ThreadEventScope,
@@ -293,6 +294,7 @@ interface InterruptActiveThreadArgs {
 
 interface InterruptActiveThreadsArgs {
   cause?: "host-connection-lost";
+  machine?: SystemThreadInterruptedMachine;
   reason: SystemThreadInterruptedReason;
   threads: readonly InterruptActiveThreadArgs[];
 }
@@ -300,6 +302,7 @@ interface InterruptActiveThreadsArgs {
 interface InterruptActiveThreadsForHostArgs {
   cause?: "host-connection-lost";
   hostId: string;
+  machine?: SystemThreadInterruptedMachine;
   reason: SystemThreadInterruptedReason;
 }
 
@@ -425,7 +428,12 @@ function threadCommandFailureMessageForInterruption(
 
 function threadCommandFailureDetailForInterruption(
   reason: RuntimeThreadInterruptionReason,
+  machine: SystemThreadInterruptedMachine | undefined,
 ): string {
+  if (machine !== undefined) {
+    const detail = machine.detail === undefined ? "" : ` (${machine.detail})`;
+    return `The machine reported that its compute exited: ${machine.reason}${detail}. Suspend and resume the machine, then retry the thread.`;
+  }
   switch (reason) {
     case "manual-stop":
       return "Thread stopped by user request";
@@ -1758,8 +1766,10 @@ function interruptActiveThreads(
             data: buildSystemErrorEventData({
               code: "thread_command_failed",
               message: failureMessage,
-              detail:
-                threadCommandFailureDetailForInterruption(effectiveReason),
+              detail: threadCommandFailureDetailForInterruption(
+                effectiveReason,
+                args.machine,
+              ),
             }),
           });
         }
@@ -1771,6 +1781,7 @@ function interruptActiveThreads(
           data: {
             reason: args.reason,
             ...(args.cause ? { cause: args.cause } : {}),
+            ...(args.machine ? { machine: args.machine } : {}),
           },
         });
         results.push({
@@ -1849,6 +1860,7 @@ export function interruptActiveThreadsForHost(
     threads: activeThreads,
     reason: args.reason,
     ...(args.cause ? { cause: args.cause } : {}),
+    ...(args.machine ? { machine: args.machine } : {}),
   });
 }
 

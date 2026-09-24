@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
   OwnershipChangeOperationAction,
+  SystemThreadInterruptedMachine,
   SystemThreadInterruptedReason,
   SystemThreadProvisioningStatus,
   ThreadEvent,
@@ -45,8 +46,9 @@ function interruptedTitle(
   reason: SystemThreadInterruptedReason,
   threadName: string,
   cause?: "host-connection-lost",
+  machine?: SystemThreadInterruptedMachine,
 ): string {
-  const row = factory().systemThreadInterrupted({ reason, cause });
+  const row = factory().systemThreadInterrupted({ reason, cause, machine });
   return operationTitleFor(row, threadName);
 }
 
@@ -184,6 +186,17 @@ describe("parseOperationMessage operation titles", () => {
           "host-connection-lost",
         ),
       ).toBe("Stopped — connection to host was lost");
+    });
+
+    it("names what the machine reported when its compute exited", () => {
+      expect(
+        interruptedTitle(
+          "host-daemon-restarted",
+          THREAD_NAME,
+          "host-connection-lost",
+          { status: "exited", reason: "OOMKilled", detail: "exit code 137" },
+        ),
+      ).toBe("Stopped — machine exited (OOMKilled)");
     });
   });
 

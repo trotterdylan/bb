@@ -17,6 +17,7 @@ import type {
   ThreadEventItemPresentation,
   ThreadEventRow,
   ThreadEventRowOfType,
+  SystemThreadInterruptedMachine,
   SystemThreadInterruptedReason,
   ThreadEventWarningCategory,
   ThreadTimelinePendingTodos,
@@ -296,6 +297,7 @@ interface SystemOperationArgs extends EventFactoryRowOptions {
 
 interface SystemThreadInterruptedArgs extends EventFactoryRowOptions {
   cause?: "host-connection-lost";
+  machine?: SystemThreadInterruptedMachine;
   reason?: SystemThreadInterruptedReason;
 }
 
@@ -1004,6 +1006,7 @@ export function createTimelineEventFactory(
         data: {
           reason: args.reason ?? "manual-stop",
           ...(args.cause ? { cause: args.cause } : {}),
+          ...(args.machine ? { machine: args.machine } : {}),
         },
       };
     },

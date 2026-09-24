@@ -280,9 +280,20 @@ export type SystemThreadInterruptedReason = z.infer<
   typeof systemThreadInterruptedReasonSchema
 >;
 
+export const systemThreadInterruptedMachineSchema = z.object({
+  status: z.literal("exited"),
+  reason: z.string(),
+  detail: z.string().optional(),
+  exitedAt: z.number().optional(),
+});
+export type SystemThreadInterruptedMachine = z.infer<
+  typeof systemThreadInterruptedMachineSchema
+>;
+
 export const systemThreadInterruptedEventDataSchema = z.object({
   reason: systemThreadInterruptedReasonSchema,
   cause: z.literal("host-connection-lost").optional(),
+  machine: systemThreadInterruptedMachineSchema.optional(),
 });
 
 export const WORKSPACE_PROVISIONING_STEP_KEYS = {

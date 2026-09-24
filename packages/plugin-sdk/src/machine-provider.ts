@@ -58,6 +58,24 @@ type PluginMachineProviderRemoveContext = Omit<
   "checkpoint"
 >;
 
+export interface PluginMachineProviderInspectContext {
+  hostId: string;
+  resource: PluginMachineProviderResource;
+  signal: AbortSignal;
+}
+
+export type PluginMachineProviderInspection =
+  | { status: "running" }
+  | {
+      status: "exited";
+      /** Short provider-native reason, for example the container's termination reason. */
+      reason: string;
+      /** Optional detail such as an exit code or message; never credentials. */
+      detail?: string;
+      /** Epoch milliseconds when the compute stopped, when the provider knows. */
+      exitedAt?: number;
+    };
+
 export interface PluginMachineProviderResourceResult {
   resource: PluginMachineProviderResource;
 }
@@ -102,6 +120,10 @@ export interface PluginMachineProviderDefinition<
   resume?(
     context: PluginMachineProviderResourceLifecycleContext,
   ): Promise<PluginMachineProviderResourceResult>;
+  /** Report whether the machine's compute is still running after its daemon connection was lost. Core calls it once per host under a short timeout, records an exited answer on every thread it interrupts and on the host status, and tells the agent on retry; return running when compute is up and only the daemon is gone. */
+  inspect?(
+    context: PluginMachineProviderInspectContext,
+  ): Promise<PluginMachineProviderInspection>;
   remove(
     context: PluginMachineProviderRemoveContext,
   ): Promise<PluginMachineProviderRemoveResult>;

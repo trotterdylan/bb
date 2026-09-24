@@ -987,6 +987,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "Call hosts.experimental_reconcile from plugin-owned maintenance to enforce core’s suspended state through the provider; active and transitional states are unchanged, the call returns after acceptance; poll host status for completion, and core does not poll. Suspend and resume must be idempotent: preserve stopped resources and reuse running compute. Request new pauses with experimental_suspend",
           "Await suspend.checkpoint(resource) to persist opaque resource state before termination; schedule vendor maintenance in the plugin using bb.background.schedule and bb.sdk.hosts.experimental_suspend",
           "Optionally declare suspend and resume together; plugins own idle timing and core coordinates transitions",
+          "Optionally declare inspect to report whether compute is still running once a machine's daemon connection is lost; core calls it once per host under a short timeout, records an exited answer and its reason on every thread it interrupts and on the host status, and tells the agent on retry so it can avoid what stopped the machine",
           "Return an opaque JSON resource that core persists and passes back to lifecycle operations; never include credentials",
           "Return a required readable machine name from create",
           "Treat a failed create as terminal and retry vendor API hiccups inside the create call",
